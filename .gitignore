@@ -1,0 +1,12 @@
+syntax: glob
+*.project
+*.svn
+*.zip
+*.db
+*.tmp_*
+*.DS_Store
+*.htaccess
+*.less
+*.pyc
+*.pydevproject
+.hg/*

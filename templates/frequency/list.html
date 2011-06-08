@@ -1,0 +1,219 @@
+<!DOCTYPE HTML>
+<html lang="en-US" manifest="{{ STATIC_URL }}station.manifest">
+<head>
+	<meta charset="UTF-8">
+	<title>ABC Radio Stations</title>
+	<style type="text/css">
+		html, body {
+			font: 12px/15px sans-serif;
+			background: #fff;
+			padding: 3px;
+			color: #000;
+			margin: 0;
+			}
+		h1, h2, h3, h4, h5, h6 {
+			font-weight: normal;
+			}
+		a:link, a:visited {
+			text-decoration: underline;
+			color: #0000CC;
+			}
+		a:hover, a:active {
+			text-decoration: underline;
+			color: #660066;
+			}
+		li { height: 2em; background: #999; padding: 10px; margin:5px; font-size: 1.5em;  }
+		/* iPhone-specific styles */
+		@media only screen and (max-device-width: 480px) { 
+		
+			html {
+				-webkit-text-size-adjust: none;
+				}
+		
+		}
+	</style>
+	<script src="{{ STATIC_URL }}scripts/jquery-1.4.min.js" type="text/javascript" charset="utf-8"></script>
+	<script src="{{ STATIC_URL }}frequency/scripts/combined.json" type="text/javascript" charset="utf-8"></script>
+	<script type="text/javascript">
+		var lat;
+		var lng;
+		navigator.geolocation.getCurrentPosition(function(position) {
+			lat = position.coords.latitude;
+			lng = position.coords.longitude;
+		});
+		$(document).ready(function(){
+			/*
+			$.each(stations, function(i, el) {
+				var station = stations[i]
+				var html ="<li>"+station.station+" at frequency "+station.frequency+"("+station.frequency_type+")</li>";
+				$('#stations').append(html);	
+			});
+			*/
+			createDB();
+			db.transaction(function(tx){
+				tx.executeSql("SELECT id FROM stations LIMIT 1", [], function(tx,result){
+					if(result.rows.length!=1) {
+						insertContent();
+						$('#closest').hide();
+					} 
+				});
+			});
+			$('#create').click(function(){
+				createDB();
+			});
+			$('#destroy').click(function(){
+				destroyDB();
+			})
+			
+			$('#insert').click(function() {
+				console.log('inserting');
+				insertContent();
+			});
+			
+			
+			$('#check').click(function() {
+				checkContent();
+				/*db.transaction(function(tx){
+					tx.executeSql("SELECT * FROM stations;", [],  
+                		dataSelectHandler, errorHandler);
+				});*/
+			});
+			
+			
+			$('#closest').click(function() {
+				var R = 6371;
+				var rad = 100;
+				var maxLat = lat + rad2deg(rad/R);
+				var minLat = lat - rad2deg(rad/R);
+				var maxLon = lng + rad2deg(rad/R/Math.cos(deg2rad(lat)));
+				var minLon = lng - rad2deg(rad/R/Math.cos(deg2rad(lat)));
+				var sql = "SELECT * ";
+				sql += "FROM stations ";
+				sql += "WHERE id in (";
+				sql += "select id from stations where latitude between "+minLat+" and "+maxLat+" ";
+				sql += " intersect ";
+				sql += "select id from STATIONS where LONGITUDE between "+minLon+" and "+maxLon+" ";
+				sql += ");";
+				/*
+				var sql = "Select id, station, latitude, longitude, area, state, frequency, "; 
+           		sql += "acos(sin("+lat+")*sin(radians(latitude)) + cos("+lat+")*cos(radians(latitude))*cos(radians(longitude)-"+lng+"))*"+R+" As D ";
+    			sql += "From ( ";
+      			sql += "Select id, station, latitude, longitude, area, state, frequency ";
+      			sql += "From stations ";
+      			sql += "Where latitude>"+minLat+" And latitude<"+maxLat+" ";
+    			sql += "And longitude>"+minLon+" And longitude<"+maxLon+" ";
+      			sql += ") As FirstCut ";
+				sql += "Where acos(sin("+lat+")*sin(radians(latitude)) + cos("+lat+")*cos(radians(latitude))*cos(radians(longitude)-"+lng+"))*"+R+" < "+rad+" ";
+  				sql += " Order by D";
+  				*/
+				db.transaction(function(tx){
+					tx.executeSql(sql, [],  
+                		dataSelectHandler, errorHandler);
+				});
+			});
+			
+			
+		});
+		//try some offline DB work
+		var db;
+		try {
+			if(window.openDatabase) {
+				db = openDatabase("stations", "1.0", "Australian radio station lookup", 200000);
+				if(!db) {
+					alert('Failed to open the DB. Something is either bad or there is no space left for this domain');
+				}
+			} else {
+				alert('No database capabilities for this browser.');
+			}
+		} catch(err) {
+			alert(err)
+		}
+		
+		function dataSelectHandler(transaction, results) {
+			var html = '';
+			for (var i=0; i<results.rows.length; i++) {
+				html +="<li>"+results.rows.item(i).station+" at frequency "+results.rows.item(i).frequency+"("+results.rows.item(i).frequency_type+")</li>"
+			}
+			$('#results').html(html);
+		}
+		function errorHandler() {
+			console.log('Something went boom!');
+			console.log(arguments);
+		}
+		function rad2deg(angle) {
+			return (angle/Math.PI)*180;
+		}
+		function deg2rad(angle) {
+			return (angle/180)*Math.PI;
+		}
+		function createDB() {
+			db.transaction(function(tx){
+				tx.executeSql("CREATE TABLE stations (id INTEGER NOT NULL PRIMARY KEY, station TEXT, area TEXT, state TEXT, frequency TEXT, frequency_type TEXT, latitude REAL, longitude REAL)", [], function(result){
+					console.log('created db');
+					console.log(result);
+				})
+			})
+		}
+		function destroyDB() {
+			db.transaction(function(tx){
+				tx.executeSql("DROP TABLE stations", [], function(result){
+					console.log('dropped db');
+					console.log(result);
+				});
+			})
+		}
+		function insertContent() {
+			$('#results').html('<li>Please wait while we grab the proper information</li>');
+			var x =0;
+			$.each(stations, function(i, el) {
+				var station = this;
+				db.transaction(function(tx){
+					data = [station.id, station.station, station.area, station.state, station.frequency, station.frequency_type, station.latitude, station.longitude];
+					tx.executeSql("INSERT INTO stations (id, station, area, state, frequency, frequency_type, latitude, longitude) VALUES (?, ?, ?, ?, ?,?, ?, ?)", data, function(result){
+						if(countProperties(stations)-1 == x) {
+							$('#results').html('<li>Download completed. Thanks for waiting.</li>');	
+							$('#closest').show();	
+						}
+						x++;
+					})
+				});
+			})
+		}
+		function checkContent() {
+			db.transaction(function(tx){
+				tx.executeSql("SELECT id FROM stations LIMIT 1", [], function(tx,result){
+					var res;
+					if(result.rows.length==1) {
+						res = 1;
+					} else {
+						res = 0;
+					}
+					console.log(res);
+					return res;
+				});
+			});
+		}
+		function countProperties(obj) {
+			var prop;
+			var propCount = 0;
+			for (prop in obj) {
+				propCount++;
+			}
+			return propCount;
+		}
+	</script>
+</head>
+<body>
+	<ul>
+		<li><a href="#" id="create">Create DB</a></li>
+		<li><a href="#" id ="destroy">Destroy DB</a></li>
+		<li><a href="#" id ="insert">Insert test data</a></li>
+		<li><a href="#" id ="check">Check test data exists</a></li>
+		<li><a href="#" id="closest">Get closest frequencies for current lat/long</a></li>
+	</ul>
+	<ul id="results">
+		
+	</ul>
+	<ul id="stations"></ul>
+</body>
+</html>
